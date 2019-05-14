@@ -250,12 +250,16 @@ function! s:Space()
             "treat Space as a temporary Twin Pair when inside another Pair)
             call s:PushStack("\<Space>")
             return "\<Space>\<Space>\<C-G>U\<Left>"
-        elseif exists("b:AutoCloseStack") && len(b:AutoCloseStack) > 1 && s:GetNextChar() == "\<Space>"
-            "If there are at least two characters in the Stack, and the most
-            "recent is Space, then the next one has to be the closer of a Pair.
-            "Unless Space is somehow set as a Pair (which is unlikely), then the
-            "only time it should be in the stack is after a Space was expanded
-            "as above.
+        elseif exists("b:AutoCloseStack") && len(b:AutoCloseStack) > 0 && get(b:AutoCloseStack, 0) == "\<Space>" && s:GetNextChar() == "\<Space>"
+            "If there is a Space in the Stack, then it was almost certainly
+            "because it was put there by a Space expansion (defined just above)
+            "which can only happen inside another pair (It is unlikely that
+            "Space would be set as a normal twin pair, since it is impossible to
+            "set it as such through ParsePairs. While it could be set directly
+            "in AutoClosePairs, this is not recommended while AutoCloseExpandSpace
+            "is enabled due to the special handling Space gets here.)
+            "This sub-pair will act as if AutoCloseConsumeOnlyOnSameInsertion is
+            "enabled regardless of the value of that setting.
             return s:ClosePair("\<Space>")
         endif
 
