@@ -6,7 +6,7 @@ scriptencoding utf-8
 " Original Author: Thiago Alves <talk@thiagoalves.com.br>
 " Maintainer: Daniel Hakimian <dhakimian@westmont.edu>
 " Licence: This script is released under the Vim License.
-" Last modified: 2019-05-13
+" Last modified: 2019-05-14
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 " check if script is already loaded
@@ -15,7 +15,7 @@ if !exists("g:debug_AutoClose") && exists("g:loaded_AutoClose")
 endif
 let g:loaded_AutoClose = 1
 
-let s:global_cpo = &cpo " store compatible-mode in local variable
+let s:cpo_save = &cpo   " store compatible-mode in local variable
 set cpo&vim             " go into nocompatible-mode
 
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -132,11 +132,7 @@ function! s:CountQuotes(char)
             endwhile
         endfor
 
-        for c in split(l:line, '\zs')
-            if c == a:char
-                let l:result = l:result + 1
-            endif
-        endfor
+        let l:result = count(split(l:line, '\zs'), a:char)
     endif
     return l:result
 endfunction
@@ -332,7 +328,7 @@ endfunction
 
 function! s:ModifyPairsList(list, pairsToAdd, openersToRemove)
     return filter(
-                \ extend(a:list, AutoClose#ParsePairs(a:pairsToAdd), "force"),
+                \ extend(AutoClose#ParsePairs(a:pairsToAdd), a:list, "keep"),
                 \ "stridx(a:openersToRemove,v:key)<0")
 endfunction
 
@@ -459,4 +455,8 @@ augroup END
 command! AutoCloseOn :let b:AutoCloseOn = 1
 command! AutoCloseOff :let b:AutoCloseOn = 0
 command! AutoCloseToggle :call s:ToggleAutoClose()
+
+" Restore 'cpoptions'
+let &cpo = s:cpo_save
+unlet s:cpo_save
 " vim:sw=4:sts=4:et
