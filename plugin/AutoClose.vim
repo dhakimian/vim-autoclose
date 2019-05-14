@@ -6,7 +6,7 @@ scriptencoding utf-8
 " Maintainer: Thiago Alves <talk@thiagoalves.com.br>
 " URL: http://thiagoalves.com.br
 " Licence: This script is released under the Vim License.
-" Last modified: 02/02/2011
+" Last modified: 2019-05-13
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 
 " check if script is already loaded
@@ -68,6 +68,17 @@ function! s:IsEmptyPair()
     let l:prev = s:GetPrevChar()
     let l:next = s:GetNextChar()
     return (l:next != "\0") && (get(b:AutoClosePairs, l:prev, "\0") == l:next)
+endfunction
+
+" Detect if this a space-expanded empty pair.
+" Used to implement automatic deletion of closing space when opening
+" counterpart is deleted in a space-expanded pair
+function! s:IsEmptySpacePair()
+    let l:pprev = s:GetCharBehind(2)
+    let l:prev = s:GetPrevChar()
+    let l:next = s:GetNextChar()
+    let l:nnext = s:GetCharAhead(2)
+    return (l:next != "\0") && (l:nnext != "\0") && l:prev == "\<Space>" && l:next == "\<Space>" && (get(b:AutoClosePairs, l:pprev, "\0") == l:nnext)
 endfunction
 
 function! s:GetCurrentSyntaxRegion()
@@ -212,36 +223,37 @@ endfunction
 
 " returns the opener, after having inserted its closer if necessary
 function! s:InsertPair(opener)
-    if ! b:AutoCloseOn || ! has_key(b:AutoClosePairs, a:opener) || s:IsForbidden(a:opener)
-      return a:opener
+    if b:AutoCloseOn && has_key(b:AutoClosePairs, a:opener) && ! s:IsForbidden(a:opener)
+        let l:save_ve = &ve
+        set ve=all
+
+        let l:next = s:GetNextChar()
+        " only add closing pair before space or any of the closepair chars
+        let close_before = '\s\|\V\[,.;' . escape(join(keys(b:AutoClosePairs) + values(b:AutoClosePairs), ''), ']').']'
+        if (l:next == "\0" || l:next =~ close_before) && s:AllowQuote(a:opener, 0)
+            call s:InsertStringAtCursor(b:AutoClosePairs[a:opener])
+            call s:PushBuffer(b:AutoClosePairs[a:opener])
+        endif
+
+        exec "set ve=" . l:save_ve
     endif
-
-    let l:save_ve = &ve
-    set ve=all
-
-    let l:next = s:GetNextChar()
-    " only add closing pair before space or any of the closepair chars
-    let close_before = '\s\|\V\[,.;' . escape(join(keys(b:AutoClosePairs) + values(b:AutoClosePairs), ''), ']').']'
-    if (l:next == "\0" || l:next =~ close_before) && s:AllowQuote(a:opener, 0)
-        call s:InsertStringAtCursor(b:AutoClosePairs[a:opener])
-        call s:PushBuffer(b:AutoClosePairs[a:opener])
-    endif
-
-    exec "set ve=" . l:save_ve
     return a:opener
 endfunction
 
 " returns the closer, after having eaten identical one if necessary
 function! s:ClosePair(closer)
-    let l:save_ve = &ve
-    set ve=all
+    if b:AutoCloseOn
+        let l:save_ve = &ve
+        set ve=all
 
-    if b:AutoCloseOn && s:GetNextChar() == a:closer
-        call s:EraseNCharsAtCursor(1)
-        call s:PopBuffer()
+        if s:GetNextChar() == a:closer && (! b:AutoCloseConsumeOnlyOnSameInsertion || (exists("b:AutoCloseBuffer") && len(b:AutoCloseBuffer) > 0 && get(b:AutoCloseBuffer, 0) == a:closer))
+            "call remove(b:AutoCloseBuffer, 0) "redundant with PopBuffer? then wouldn't things be not working as well as they are?
+            call s:EraseNCharsAtCursor(1)
+            call s:PopBuffer()
+        endif
+
+        exec "set ve=" . l:save_ve
     endif
-
-    exec "set ve=" . l:save_ve
     return a:closer
 endfunction
 
@@ -259,14 +271,16 @@ endfunction
 
 " maintain auto-close buffer when delete key is pressed
 function! s:Delete()
-    let l:save_ve = &ve
-    set ve=all
+    if b:AutoCloseOn
+        let l:save_ve = &ve
+        set ve=all
 
-    if exists("b:AutoCloseBuffer") && len(b:AutoCloseBuffer) > 0 && b:AutoCloseBuffer[0] == s:GetNextChar()
-        call s:PopBuffer()
+        if exists("b:AutoCloseBuffer") && len(b:AutoCloseBuffer) > 0 && b:AutoCloseBuffer[0] == s:GetNextChar()
+            call s:PopBuffer()
+        endif
+
+        exec "set ve=" . l:save_ve
     endif
-
-    exec "set ve=" . l:save_ve
     return "\<Del>"
 endfunction
 
@@ -274,27 +288,47 @@ endfunction
 " - erase an empty pair if backspacing from inside one
 " - maintain auto-close buffer
 function! s:Backspace()
-    let l:save_ve = &ve
-    let l:prev = s:GetPrevChar()
-    let l:next = s:GetNextChar()
-    set ve=all
+    if b:AutoCloseOn
+        let l:prev = s:GetPrevChar()
+        let l:next = s:GetNextChar()
+        let l:save_ve = &ve
+        set ve=all
 
-    if b:AutoCloseOn && s:IsEmptyPair() && (l:prev != l:next || s:AllowQuote(l:prev, 1))
-        call s:EraseNCharsAtCursor(1)
-        call s:PopBuffer()
+        "TODO: Check &backspace for 'start'. If present, then don't attempt to delete an empty pair
+        "unless it's in the Buffer (otherwise, unless done in the same insertion action, it will
+        "delete the closer, but the opener will remain since it is before the start of insertion)
+        if (s:IsEmptyPair() && (l:prev != l:next || s:AllowQuote(l:prev, 1))) || s:IsEmptySpacePair()
+            call s:EraseNCharsAtCursor(1)
+            call s:PopBuffer()
+        endif
+
+        exec "set ve=" . l:save_ve
     endif
-
-    exec "set ve=" . l:save_ve
     return "\<BS>"
 endfunction
 
 function! s:Space()
-    if b:AutoCloseOn && s:IsEmptyPair()
-        call s:PushBuffer("\<Space>")
-        return "\<Space>\<Space>\<Left>"
-    else
-        return "\<Space>"
+    if b:AutoCloseOn
+        let l:save_ve = &ve
+        set ve=all
+
+        if s:IsEmptyPair()
+            "If we insert a Space inside an empty Pair, expand it (basically
+            "treat Space as a temporary Twin Pair when inside another Pair)
+            call s:InsertStringAtCursor("\<Space>")
+            call s:PushBuffer("\<Space>")
+        elseif exists("b:AutoCloseBuffer") && len(b:AutoCloseBuffer) > 1 && s:GetNextChar() == "\<Space>"
+            "If there are at least two characters in the Buffer, and the most
+            "recent is Space, then the next one has to be the closer of a Pair.
+            "Unless Space is somehow set as a Pair (which is unlikely), then the
+            "only time it should be in the buffer is after a Space was expanded
+            "as above.
+            call s:ClosePair("\<Space>")
+        endif
+
+        exec "set ve=" . l:save_ve
     endif
+    return "\<Space>"
 endfunction
 
 function! s:Enter()
@@ -373,6 +407,7 @@ function! s:DefineVariables()
                 \ 'AutoClosePumvisible': {"ENTER": "\<C-Y>", "ESC": "\<C-E>"},
                 \ 'AutoCloseExpandEnterOn': "",
                 \ 'AutoCloseExpandSpace': 1,
+                \ 'AutoCloseConsumeOnlyOnSameInsertion': 0,
                 \ }
 
     " Let the user define if he/she wants the plugin to do special actions when the
@@ -539,4 +574,4 @@ augroup END
 command! AutoCloseOn :let b:AutoCloseOn = 1
 command! AutoCloseOff :let b:AutoCloseOn = 0
 command! AutoCloseToggle :call s:ToggleAutoClose()
-" vim:sw=4:sts=4:
+" vim:sw=4:sts=4:et
