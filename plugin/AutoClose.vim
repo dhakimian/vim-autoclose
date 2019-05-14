@@ -225,7 +225,7 @@ function! s:Backspace()
         let l:prev = s:GetPrevChar()
         let l:next = s:GetNextChar()
 
-        "TODO: Check &backspace for 'start'. If present, then don't attempt to delete an empty pair
+        "TODO: Check &backspace for 'start'. If not present, then don't attempt to delete an empty pair
         "unless it's in the Stack (otherwise, unless done in the same insertion action, it will
         "delete the closer, but the opener will remain since it is before the start of insertion)
         if (s:IsEmptyPair() && (l:prev != l:next || s:AllowQuote(l:prev, 1))) || s:IsEmptySpacePair()
@@ -444,11 +444,11 @@ endif
 
 
 augroup <Plug>(autoclose)
-autocmd!
-autocmd BufNewFile,BufRead,BufEnter * if !<SID>IsLoadedOnBuffer() | call <SID>CreateMaps() | endif
-autocmd InsertEnter * call <SID>EmptyStack()
-autocmd InsertLeave * call <SID>EmptyStack()
-autocmd BufEnter * if mode() == 'i' | call <SID>EmptyStack() | endif
+    autocmd!
+    autocmd BufNewFile,BufRead,BufEnter * if !<SID>IsLoadedOnBuffer() | call <SID>CreateMaps() | endif
+    autocmd InsertEnter * call <SID>EmptyStack()
+    autocmd InsertLeave * call <SID>EmptyStack()
+    autocmd BufEnter * if mode() == 'i' | call <SID>EmptyStack() | endif
 augroup END
 
 " Define convenient commands
